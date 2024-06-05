@@ -1,0 +1,64 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="LocalProcess">
+      <UniqueIdentifier>{a4c2c2a4-528e-4d00-b1f7-64a4ce53cd2f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ExtProcess">
+      <UniqueIdentifier>{b3949912-7d8b-4994-ac22-b7704637f5b8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Includes">
+      <UniqueIdentifier>{cda9bbba-c499-4725-adc0-a74fc81f8c48}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="LibraryHeader">
+      <UniqueIdentifier>{548f0468-4ecb-48f3-949b-6d0158effd8f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ProcessUtils">
+      <UniqueIdentifier>{4131447f-fe6b-4465-a313-5926f5ca14f2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="IProcess">
+      <UniqueIdentifier>{054c417e-0b6d-4275-90da-71bf855b8cc5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Main%28for testing%29">
+      <UniqueIdentifier>{9beea304-6f17-47d8-ada0-586fdc3c7eaa}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="LocalProcess.hpp">
+      <Filter>LocalProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="ExtProcess.hpp">
+      <Filter>ExtProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="ntdll.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="peb.hpp">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="Process.hpp">
+      <Filter>LibraryHeader</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessUtils.hpp">
+      <Filter>ProcessUtils</Filter>
+    </ClInclude>
+    <ClInclude Include="IProcess.hpp">
+      <Filter>IProcess</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="LocalProcess.cpp">
+      <Filter>LocalProcess</Filter>
+    </ClCompile>
+    <ClCompile Include="ExtProcess.cpp">
+      <Filter>ExtProcess</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessUtils.cpp">
+      <Filter>ProcessUtils</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>
