@@ -23,4 +23,23 @@ namespace Process
 		
 		return bRet;
 	}
+
+	std::vector<SigByte> getSigBytePattern(const std::vector<short>& pattern)
+	{
+		std::vector<SigByte> result{};
+
+		for (const short currByte : pattern)
+		{
+			if (currByte < 0 || currByte > 0xFF)
+			{
+				result.push_back({ static_cast<char>(0x0), '?' });
+			}
+			else
+			{
+				result.push_back({ static_cast<char>(currByte), 'x' });
+			}
+		}
+
+		return result;
+	}
 }

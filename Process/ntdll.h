@@ -4021,6 +4021,14 @@ __pragma(clang diagnostic pop)
             _In_ ULONG ProcessInformationLength
         );
 
+    typedef NTSTATUS(NTAPI* tNtSetInformationProcess)
+        (
+            _In_ HANDLE ProcessHandle,
+            _In_ PROCESSINFOCLASS ProcessInformationClass,
+            _In_ PVOID ProcessInformation,
+            _In_ ULONG ProcessInformationLength
+            );
+
     NTSYSCALLAPI
         NTSTATUS
         NTAPI

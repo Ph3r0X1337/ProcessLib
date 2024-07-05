@@ -40,28 +40,6 @@ namespace Process
 	using ProcessInformationA = ProcessInformation<std::string>;
 	using ProcessInformationW = ProcessInformation<std::wstring>;
 
-	/*
-	struct ProcessInformationA
-	{
-		DWORD procID{};
-		DWORD parentProcID{};
-		std::string procName{};
-		DWORD threadCount{};
-		LONG threadBasePriority{};
-		bool wow64Process{ false };
-	};
-
-	struct ProcessInformationW
-	{
-		DWORD procID{};
-		DWORD parentProcID{};
-		std::wstring procName{};
-		DWORD threadCount{};
-		LONG threadBasePriority{};
-		bool wow64Process{ false };
-	};
-	*/
-
 	template <class T>
 	struct ModuleInformation
 	{
@@ -75,31 +53,10 @@ namespace Process
 	using ModuleInformationA = ModuleInformation<std::string>;
 	using ModuleInformationW = ModuleInformation<std::wstring>;
 
-	/*
-	struct ModuleInformationA
-	{
-		DWORD procID{};
-		AddressBuffer modBA{};
-		DWORD modSize{};
-		std::string modName{};
-		std::string procName{};
-	};
-
-	struct ModuleInformationW
-	{
-		DWORD procID{};
-		AddressBuffer modBA{};
-		DWORD modSize{};
-		std::wstring modName{};
-		std::wstring procName{};
-	};
-	*/
-
 	template <class T>
 	struct Signature
 	{
 		T sigName{};
-		//T moduleName{};
 		std::vector<short> pattern{};
 		std::vector<DWORD> offsets{};
 		DWORD extra{};
@@ -121,34 +78,12 @@ namespace Process
 	using ModuleSignatureA = ModuleSignature<std::string>;
 	using ModuleSignatureW = ModuleSignature<std::wstring>;
 
-	/*
-	struct SignatureA
-	{
-		std::string sigName{};
-		std::string moduleName{};
-		std::vector<int> pattern{};
-		std::vector<DWORD> offsets{};
-		DWORD extra{};
-		bool relativeAddress{ false };
-	};
-
-	struct SignatureW
-	{
-		std::wstring sigName{};
-		std::wstring moduleName{};
-		std::vector<int> pattern{};
-		std::vector<DWORD> offsets{};
-		DWORD extra{};
-		bool relativeAddress{ false };
-	};
-	*/
-
 	template <class T>
 	struct FoundGadget
 	{
 		T moduleName{};
 		std::vector<SigByte> pattern{};
-		std::vector<char> bytes{};
+		std::vector<BYTE> bytes{};
 		QWORD absoluteAddress{};
 		DWORD relativeAdddress{};
 		bool readable{ false };
@@ -158,53 +93,32 @@ namespace Process
 	using FoundGadgetA = FoundGadget<std::string>;
 	using FoundGadgetW = FoundGadget<std::wstring>;
 
-	/*
-	struct FoundGadgetA
+	template <class T>
+	struct ModuleExport
 	{
-		std::string moduleName{};
-		std::vector<SigByte> pattern{};
-		std::vector<char> bytes{};
+		T moduleName{};
+		T exportName{};
 		QWORD absoluteAddress{};
-		DWORD relativeAdddress{};
-		bool readable{ false };
-		bool writable{ false };
+		DWORD relativeAddress{};
+		WORD ordinal{};
 	};
 
-	struct FoundGadgetW
-	{
-		std::wstring moduleName{};
-		std::vector<SigByte> pattern{};
-		std::vector<char> bytes{};
-		QWORD absoluteAddress{};
-		DWORD relativeAdddress{};
-		bool readable{ false };
-		bool writable{ false };
-	};
-	*/
+	using ModuleExportA = ModuleExport<std::string>;
+	using ModuleExportW = ModuleExport<std::wstring>;
 
 	bool setDebugPrivilege() noexcept;
+
+	std::vector<SigByte> getSigBytePattern(const std::vector<short>& pattern);
 
 	template <typename T>
 	std::vector<SigByte> getSigBytePattern(const Signature<T>& signature)
 	{
-		std::vector<SigByte> result{};
-
-		for (const short currByte : signature.pattern)
-		{
-			if (currByte < 0 || currByte > 0xFF)
-			{
-				result.push_back({ static_cast<char>(0x0), '?' });
-			}
-			else
-			{
-				result.push_back({ static_cast<char>(currByte), 'x' });
-			}
-		}
-
-		return result;
+		return getSigBytePattern(signature.pattern);
 	}
 
 	inline constexpr std::vector<SigByte>(*getSigBytePatternA)(const Signature<std::string>&) = getSigBytePattern<std::string>;
 	inline constexpr std::vector<SigByte>(*getSigBytePatternW)(const Signature<std::wstring>&) = getSigBytePattern<std::wstring>;
+
+	inline constexpr WORD ordinalBaseOffset{ 8 };
 
 }

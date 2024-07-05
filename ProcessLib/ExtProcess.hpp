@@ -78,15 +78,18 @@ private:
 
 public:
 
+	using IProcessA::scanPattern;
+	using IProcessA::findGadgets;
+
 	ExtProcessA() noexcept;
 	ExtProcessA(const std::string& procName, const DWORD handleFlags = PROCESS_ALL_ACCESS) noexcept;
 	ExtProcessA(const DWORD procID, const DWORD handleFlags = PROCESS_ALL_ACCESS) noexcept;
-	ExtProcessA(const HANDLE duplicatedHandle, bool reattachByName = false, bool closeHandleOnDetach = false) noexcept;
+	ExtProcessA(const HANDLE duplicatedHandle, const bool reattachByName = false, const bool closeHandleOnDetach = false) noexcept;
 	virtual ~ExtProcessA();
 
 	bool attach(const std::string& procName) noexcept;
 	bool attach(const DWORD procID) noexcept;
-	bool attach(const HANDLE hProc, bool reattachByName = false, bool closeHandleOnDetach = false) noexcept;
+	bool attach(const HANDLE hProc, const bool reattachByName = false, const bool closeHandleOnDetach = false) noexcept;
 	bool detach() noexcept;
 	bool reattach() noexcept;
 
@@ -103,6 +106,12 @@ public:
 	Process::ModuleInformationA getModuleInfo_x86(const std::string& modName) const noexcept override final;
 	Process::ModuleInformationA getModuleInfo_x64(const std::string& modName) const noexcept override final;
 
+	std::vector<Process::ModuleExportA> getModuleExports_x86(const QWORD modBA) const noexcept override final;
+	std::vector<Process::ModuleExportA> getModuleExports_x64(const QWORD modBA) const noexcept override final;
+
+	std::vector<Process::ModuleExportA> getModuleExports_x86(const std::string& modName) const noexcept override final;
+	std::vector<Process::ModuleExportA> getModuleExports_x64(const std::string& modName) const noexcept override final;
+
 	QWORD getProcAddress_x86(const QWORD modBA, const std::string& functionName) const noexcept override final;
 	QWORD getProcAddress_x64(const QWORD modBA, const std::string& functionName) const noexcept override final;
 
@@ -116,11 +125,8 @@ public:
 	QWORD scanPattern_x86(const Process::ModuleSignatureA& signature) const noexcept override final;
 	QWORD scanPattern_x64(const Process::ModuleSignatureA& signature) const noexcept override final;
 
-	int patternCount(const Process::SignatureA& signature) const noexcept override final;
-	int patternCount_x86(const Process::ModuleSignatureA& signature) const noexcept override final;
-	int patternCount_x64(const Process::ModuleSignatureA& signature) const noexcept override final;
-
 	std::vector<Process::FoundGadgetA> findGadgets(const Process::SignatureA& signature) const noexcept override final;
+	std::vector<Process::FoundGadgetA> findGadgets(const std::vector<short>& signature, const QWORD startAddress, const QWORD endAddress) const noexcept override final;
 	std::vector<Process::FoundGadgetA> findGadgets_x86(const Process::ModuleSignatureA& signature) const noexcept override final;
 	std::vector<Process::FoundGadgetA> findGadgets_x64(const Process::ModuleSignatureA& signature) const noexcept override final;
 
@@ -250,15 +256,18 @@ private:
 
 public:
 
+	using IProcessW::scanPattern;
+	using IProcessW::findGadgets;
+
 	ExtProcessW() noexcept;
 	ExtProcessW(const std::wstring& procName, const DWORD handleFlags = PROCESS_ALL_ACCESS) noexcept;
 	ExtProcessW(const DWORD procID, const DWORD handleFlags = PROCESS_ALL_ACCESS) noexcept;
-	ExtProcessW(const HANDLE duplicatedHandle, bool reattachByName = false, bool closeHandleOnDetach = false) noexcept;
+	ExtProcessW(const HANDLE duplicatedHandle, const bool reattachByName = false, const bool closeHandleOnDetach = false) noexcept;
 	virtual ~ExtProcessW();
 
 	bool attach(const std::wstring& procName) noexcept;
 	bool attach(const DWORD procID) noexcept;
-	bool attach(const HANDLE hProc, bool reattachByName = false, bool closeHandleOnDetach = false) noexcept;
+	bool attach(const HANDLE hProc, const bool reattachByName = false, const bool closeHandleOnDetach = false) noexcept;
 	bool detach() noexcept;
 	bool reattach() noexcept;
 
@@ -275,6 +284,12 @@ public:
 	Process::ModuleInformationW getModuleInfo_x86(const std::wstring& modName) const noexcept override final;
 	Process::ModuleInformationW getModuleInfo_x64(const std::wstring& modName) const noexcept override final;
 
+	std::vector<Process::ModuleExportW> getModuleExports_x86(const QWORD modBA) const noexcept override final;
+	std::vector<Process::ModuleExportW> getModuleExports_x64(const QWORD modBA) const noexcept override final;
+
+	std::vector<Process::ModuleExportW> getModuleExports_x86(const std::wstring& modName) const noexcept override final;
+	std::vector<Process::ModuleExportW> getModuleExports_x64(const std::wstring& modName) const noexcept override final;
+
 	QWORD getProcAddress_x86(const QWORD modBA, const std::wstring& functionName) const noexcept override final;
 	QWORD getProcAddress_x64(const QWORD modBA, const std::wstring& functionName) const noexcept override final;
 
@@ -288,11 +303,8 @@ public:
 	QWORD scanPattern_x86(const Process::ModuleSignatureW& signature) const noexcept override final;
 	QWORD scanPattern_x64(const Process::ModuleSignatureW& signature) const noexcept override final;
 
-	int patternCount(const Process::SignatureW& signature) const noexcept override final;
-	int patternCount_x86(const Process::ModuleSignatureW& signature) const noexcept override final;
-	int patternCount_x64(const Process::ModuleSignatureW& signature) const noexcept override final;
-
 	std::vector<Process::FoundGadgetW> findGadgets(const Process::SignatureW& signature) const noexcept override final;
+	std::vector<Process::FoundGadgetW> findGadgets(const std::vector<short>& signature, const QWORD startAddress, const QWORD endAddress) const noexcept override final;
 	std::vector<Process::FoundGadgetW> findGadgets_x86(const Process::ModuleSignatureW& signature) const noexcept override final;
 	std::vector<Process::FoundGadgetW> findGadgets_x64(const Process::ModuleSignatureW& signature) const noexcept override final;
 

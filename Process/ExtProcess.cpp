@@ -1,5 +1,6 @@
 #include "ExtProcess.hpp"
 #include "LocalProcess.hpp"
+#include <algorithm>
 
 bool ExtProcessA::updateModuleInfo_x86() noexcept
 {
@@ -281,7 +282,7 @@ SIZE_T ExtProcessA::QVM_Wow64(const QWORD baseAddr, MEMORY_BASIC_INFORMATION64* 
 		return 0;
 	}
 
-	return returnLength;
+	return static_cast<SIZE_T>(returnLength);
 }
 #endif
 
@@ -308,7 +309,7 @@ ExtProcessA::ExtProcessA(const DWORD procID, const DWORD handleFlags) noexcept
 	m_attached = attach(procID);
 }
 
-ExtProcessA::ExtProcessA(const HANDLE duplicatedHandle, bool reattachByName, bool closeHandleOnDetach) noexcept
+ExtProcessA::ExtProcessA(const HANDLE duplicatedHandle, const bool reattachByName, const bool closeHandleOnDetach) noexcept
 	: IProcessA{ duplicatedHandle }
 	, m_handleFlags{}
 	, m_closeHandleOnDetach{ closeHandleOnDetach }
@@ -356,7 +357,7 @@ bool ExtProcessA::attach(const DWORD procID) noexcept
 	return m_attached;
 }
 
-bool ExtProcessA::attach(const HANDLE hProc, bool reattachByName, bool closeHandleOnDetach) noexcept
+bool ExtProcessA::attach(const HANDLE hProc, const bool reattachByName, const bool closeHandleOnDetach) noexcept
 {
 	if (m_attached)
 		return false;
@@ -694,6 +695,237 @@ Process::ModuleInformationA ExtProcessA::getModuleInfo_x64(const std::string& mo
 }
 
 
+std::vector<Process::ModuleExportA> ExtProcessA::getModuleExports_x86(const QWORD modBA) const noexcept
+{
+	std::vector<Process::ModuleExportA> exports{};
+
+	if (modBA > static_cast<QWORD>(0xFFFFFFFF))
+		return exports;
+
+	const IMAGE_DOS_HEADER dosHeader{ RPM<IMAGE_DOS_HEADER>(static_cast<uintptr_t>(modBA)) };
+
+	if (dosHeader.e_magic != 0x5A4D)
+		return exports;
+
+	const IMAGE_NT_HEADERS32 ntHeader{ RPM<IMAGE_NT_HEADERS32>(modBA + dosHeader.e_lfanew) };
+
+	if (ntHeader.Signature != 0x4550 || ntHeader.OptionalHeader.Magic != 0x10B || ntHeader.FileHeader.Machine != IMAGE_FILE_MACHINE_I386 || !(ntHeader.FileHeader.Characteristics & (IMAGE_FILE_DLL | IMAGE_FILE_EXECUTABLE_IMAGE)))
+	{
+		return exports;
+	}
+
+	const IMAGE_EXPORT_DIRECTORY exportDirectory{ RPM<IMAGE_EXPORT_DIRECTORY>(modBA + ntHeader.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress) };
+
+	const QWORD namesAddr{ modBA + exportDirectory.AddressOfNames };
+	const QWORD ordinalsAddr{ modBA + exportDirectory.AddressOfNameOrdinals };
+	const QWORD exportTableAddr{ modBA + exportDirectory.AddressOfFunctions };
+
+	std::vector<DWORD> exportTable{};
+	exportTable.resize(exportDirectory.NumberOfFunctions);
+
+	std::vector<WORD> ordinalTable{};
+	ordinalTable.resize(exportDirectory.NumberOfNames);
+
+	std::vector<DWORD> nameTable{};
+	nameTable.resize(exportDirectory.NumberOfNames);
+
+	if (!RPM(exportTableAddr, exportTable.data(), static_cast<QWORD>(exportTable.size()) * sizeof(exportTable.at(0)), nullptr) ||
+		!RPM(ordinalsAddr, ordinalTable.data(), static_cast<QWORD>(ordinalTable.size()) * sizeof(ordinalTable.at(0)), nullptr) ||
+		!RPM(namesAddr, nameTable.data(), static_cast<QWORD>(nameTable.size()) * sizeof(nameTable.at(0)), nullptr))
+	{
+		return exports;
+	}
+
+	exports.reserve(2000);
+
+	std::string modName{};
+
+	std::vector<Process::ModuleInformationA>::const_iterator foundModule{ std::find_if(m_x86Modules.begin(), m_x86Modules.end(), [&](const Process::ModuleInformationA& mod) -> bool { return mod.modBA.x64Addr == modBA; }) };
+
+	if (foundModule != m_x86Modules.end())
+		modName = foundModule->modName;
+	else
+		modName = "unknown";
+
+	char nameBuffer[0x102]{};
+
+	for (DWORD iterator{ 0 }; iterator < exportDirectory.NumberOfNames; ++iterator)
+	{
+		if (!nameTable.at(iterator))
+			continue;
+
+		RPM(modBA + nameTable.at(iterator), nameBuffer, 0x100, nullptr);
+
+		Process::ModuleExportA currExport{};
+
+		currExport.moduleName = modName;
+		currExport.ordinal = ordinalTable.at(iterator);
+		currExport.relativeAddress = exportTable.at(currExport.ordinal);
+		currExport.absoluteAddress = modBA + currExport.relativeAddress;
+		currExport.exportName = std::string{ reinterpret_cast<const char*>(nameBuffer) };
+
+		currExport.ordinal += Process::ordinalBaseOffset;
+
+		if (currExport.absoluteAddress <= 0xFFFFFFFF)
+			exports.push_back(currExport);
+	}
+
+	for (DWORD iterator{ 0 }; iterator < exportDirectory.NumberOfFunctions; ++iterator)
+	{
+		bool hasName{ false };
+
+		for (Process::ModuleExportA& modExport : exports)
+		{
+			if (modExport.relativeAddress == exportTable.at(iterator))
+			{
+				hasName = true;
+				break;
+			}
+		}
+
+		if (hasName)
+			continue;
+
+		Process::ModuleExportA currExport{};
+
+		currExport.moduleName = modName;
+		currExport.ordinal = static_cast<WORD>(iterator);
+		currExport.relativeAddress = exportTable.at(iterator);
+		currExport.absoluteAddress = modBA + currExport.relativeAddress;
+		currExport.exportName = "unknown";
+
+		currExport.ordinal += Process::ordinalBaseOffset;
+
+		if (currExport.absoluteAddress <= 0xFFFFFFFF)
+			exports.push_back(currExport);
+	}
+
+	std::sort(exports.begin(), exports.end(), [&](const Process::ModuleExportA& a, const Process::ModuleExportA& b) -> bool { return a.ordinal < b.ordinal; });
+
+	return exports;
+}
+
+std::vector<Process::ModuleExportA> ExtProcessA::getModuleExports_x64(const QWORD modBA) const noexcept
+{
+	std::vector<Process::ModuleExportA> exports{};
+
+	const IMAGE_DOS_HEADER dosHeader{ RPM<IMAGE_DOS_HEADER>(modBA) };
+
+	if (dosHeader.e_magic != 0x5A4D)
+		return exports;
+
+	const IMAGE_NT_HEADERS64 ntHeader{ RPM<IMAGE_NT_HEADERS64>(modBA + dosHeader.e_lfanew) };
+
+	if (ntHeader.Signature != 0x4550 || ntHeader.OptionalHeader.Magic != 0x20B || ntHeader.FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 || !(ntHeader.FileHeader.Characteristics & (IMAGE_FILE_DLL | IMAGE_FILE_EXECUTABLE_IMAGE)))
+	{
+		return exports;
+	}
+
+	const IMAGE_EXPORT_DIRECTORY exportDirectory{ RPM<IMAGE_EXPORT_DIRECTORY>(modBA + ntHeader.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress) };
+
+	const QWORD namesAddr{ modBA + exportDirectory.AddressOfNames };
+	const QWORD ordinalsAddr{ modBA + exportDirectory.AddressOfNameOrdinals };
+	const QWORD exportTableAddr{ modBA + exportDirectory.AddressOfFunctions };
+
+	std::vector<DWORD> exportTable{};
+	exportTable.resize(exportDirectory.NumberOfFunctions);
+
+	std::vector<WORD> ordinalTable{};
+	ordinalTable.resize(exportDirectory.NumberOfNames);
+
+	std::vector<DWORD> nameTable{};
+	nameTable.resize(exportDirectory.NumberOfNames);
+
+	if (!RPM(exportTableAddr, exportTable.data(), static_cast<QWORD>(exportTable.size()) * sizeof(exportTable.at(0)), nullptr) ||
+		!RPM(ordinalsAddr, ordinalTable.data(), static_cast<QWORD>(ordinalTable.size()) * sizeof(ordinalTable.at(0)), nullptr) ||
+		!RPM(namesAddr, nameTable.data(), static_cast<QWORD>(nameTable.size()) * sizeof(nameTable.at(0)), nullptr))
+	{
+		return exports;
+	}
+
+	exports.reserve(2000);
+
+	std::string modName{};
+
+	std::vector<Process::ModuleInformationA>::const_iterator foundModule{ std::find_if(m_x64Modules.begin(), m_x64Modules.end(), [&](const Process::ModuleInformationA& mod) -> bool { return mod.modBA.x64Addr == modBA; }) };
+
+	if (foundModule != m_x64Modules.end())
+		modName = foundModule->modName;
+	else
+		modName = "unknown";
+
+	char nameBuffer[0x102]{};
+
+	for (DWORD iterator{ 0 }; iterator < exportDirectory.NumberOfNames; ++iterator)
+	{
+		if (!nameTable.at(iterator))
+			continue;
+
+		RPM(modBA + nameTable.at(iterator), nameBuffer, 0x100, nullptr);
+
+		Process::ModuleExportA currExport{};
+
+		currExport.moduleName = modName;
+		currExport.ordinal = ordinalTable.at(iterator);
+		currExport.relativeAddress = exportTable.at(currExport.ordinal);
+		currExport.absoluteAddress = modBA + currExport.relativeAddress;
+		currExport.exportName = std::string{ reinterpret_cast<const char*>(nameBuffer) };
+
+		currExport.ordinal += Process::ordinalBaseOffset;
+
+		exports.push_back(currExport);
+	}
+
+	for (DWORD iterator{ 0 }; iterator < exportDirectory.NumberOfFunctions; ++iterator)
+	{
+		bool hasName{ false };
+
+		for (Process::ModuleExportA& modExport : exports)
+		{
+			if (modExport.relativeAddress == exportTable.at(iterator))
+			{
+				hasName = true;
+				break;
+			}
+		}
+
+		if (hasName)
+			continue;
+
+		Process::ModuleExportA currExport{};
+
+		currExport.moduleName = modName;
+		currExport.ordinal = static_cast<WORD>(iterator);
+		currExport.relativeAddress = exportTable.at(iterator);
+		currExport.absoluteAddress = modBA + currExport.relativeAddress;
+		currExport.exportName = "unknown";
+
+		currExport.ordinal += Process::ordinalBaseOffset;
+
+		exports.push_back(currExport);
+	}
+
+	std::sort(exports.begin(), exports.end(), [&](const Process::ModuleExportA& a, const Process::ModuleExportA& b) -> bool { return a.ordinal < b.ordinal; });
+
+	return exports;
+}
+
+
+std::vector<Process::ModuleExportA> ExtProcessA::getModuleExports_x86(const std::string& modName) const noexcept
+{
+	const QWORD modBA{ getModBA_x86(modName) };
+
+	return (modBA) ? getModuleExports_x86(modBA) : std::vector<Process::ModuleExportA>{};
+}
+
+std::vector<Process::ModuleExportA> ExtProcessA::getModuleExports_x64(const std::string& modName) const noexcept
+{
+	const QWORD modBA{ getModBA_x64(modName) };
+
+	return (modBA) ? getModuleExports_x64(modBA) : std::vector<Process::ModuleExportA>{};
+}
+
+
 QWORD ExtProcessA::getProcAddress_x86(const QWORD modBA, const std::string& functionName) const noexcept
 {
 	if (modBA > static_cast<QWORD>(0xFFFFFFFF))
@@ -970,22 +1202,6 @@ QWORD ExtProcessA::scanPattern_x64(const Process::ModuleSignatureA& signature) c
 }
 
 
-int ExtProcessA::patternCount(const Process::SignatureA& signature) const noexcept
-{
-	return findGadgets(signature).size();
-}
-
-int ExtProcessA::patternCount_x86(const Process::ModuleSignatureA& signature) const noexcept
-{
-	return findGadgets_x86(signature).size();
-}
-
-int ExtProcessA::patternCount_x64(const Process::ModuleSignatureA& signature) const noexcept
-{
-	return findGadgets_x64(signature).size();
-}
-
-
 std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets(const Process::SignatureA& signature) const noexcept
 {
 	std::vector<Process::FoundGadgetA> result{};
@@ -1018,6 +1234,112 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets(const Process::Signa
 	return result;
 }
 
+std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets(const std::vector<short>& signature, const QWORD startAddress, const QWORD endAddress) const noexcept
+{
+	std::vector<Process::FoundGadgetA> result{};
+
+	const std::vector<Process::SigByte> pattern{ Process::getSigBytePattern(signature) };
+
+	MEMORY_BASIC_INFORMATION64 mbi{};
+
+	for (QWORD currAddress{ startAddress }; currAddress < endAddress; currAddress = mbi.BaseAddress + mbi.RegionSize)
+	{
+		if (!QVM(static_cast<QWORD>(currAddress), &mbi))
+			break;
+
+		if ((mbi.Protect & PAGE_NOACCESS) || (mbi.Protect & PAGE_GUARD) || !(mbi.State & MEM_COMMIT) || !mbi.RegionSize)
+			continue;
+
+		const DWORD scanSize{ (currAddress + mbi.RegionSize > endAddress) ? static_cast<DWORD>(endAddress - currAddress) : static_cast<DWORD>(mbi.RegionSize) };
+
+		const LPVOID pScanBuffer{ VirtualAlloc(nullptr, scanSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) };
+
+		if (!pScanBuffer)
+			continue;
+
+		if (!(mbi.Protect & PAGE_EXECUTE))
+		{
+			if (!RPM(currAddress, pScanBuffer, scanSize, nullptr))
+			{
+				VirtualFree(pScanBuffer, 0, MEM_RELEASE);
+				continue;
+			}
+
+			const std::vector<char*> addrBuffer{ findPatternsInBuffer(reinterpret_cast<const char* const>(pScanBuffer), scanSize, pattern) };
+
+			if (addrBuffer.size())
+			{
+				for (const char* const address : addrBuffer)
+				{
+					Process::FoundGadgetA currGadget{};
+					Process::ModuleInformationA modInfo{};
+
+					currGadget.absoluteAddress = currAddress + (reinterpret_cast<QWORD>(address) - reinterpret_cast<QWORD>(pScanBuffer));
+					currGadget.readable = true;
+					currGadget.writable = !((mbi.Protect & PAGE_EXECUTE) || (mbi.Protect & PAGE_EXECUTE_READ) || (mbi.Protect & PAGE_READONLY));
+					currGadget.pattern = pattern;
+					currGadget.bytes.clear();
+					currGadget.bytes.insert(currGadget.bytes.end(), address, address + pattern.size());
+
+					if (isModuleAddress(reinterpret_cast<QWORD>(address), &modInfo))
+					{
+						currGadget.relativeAdddress = static_cast<DWORD>(currGadget.absoluteAddress - modInfo.modBA.x64Addr);
+						currGadget.moduleName = modInfo.modName;
+					}
+
+					result.push_back(currGadget);
+				}
+			}
+		}
+		else
+		{
+			DWORD oldProtect{};
+
+			if (PVM(currAddress, scanSize, PAGE_EXECUTE_READWRITE, &oldProtect))
+			{
+				if (!RPM(currAddress, pScanBuffer, scanSize, nullptr))
+				{
+					PVM(currAddress, scanSize, oldProtect, &oldProtect);
+					VirtualFree(pScanBuffer, 0, MEM_RELEASE);
+					continue;
+				}
+
+				PVM(currAddress, scanSize, oldProtect, &oldProtect);
+
+				const std::vector<char*> addrBuffer{ findPatternsInBuffer(reinterpret_cast<const char* const>(pScanBuffer), scanSize, pattern) };
+
+				if (addrBuffer.size())
+				{
+					for (const char* const address : addrBuffer)
+					{
+						Process::FoundGadgetA currGadget{};
+						Process::ModuleInformationA modInfo{};
+
+						currGadget.absoluteAddress = currAddress + (reinterpret_cast<QWORD>(address) - reinterpret_cast<QWORD>(pScanBuffer));
+						currGadget.readable = false;
+						currGadget.writable = !((mbi.Protect & PAGE_EXECUTE) || (mbi.Protect & PAGE_EXECUTE_READ) || (mbi.Protect & PAGE_READONLY));
+						currGadget.pattern = pattern;
+						currGadget.bytes.clear();
+						currGadget.bytes.insert(currGadget.bytes.end(), address, address + pattern.size());
+
+						if (isModuleAddress(reinterpret_cast<QWORD>(address), &modInfo))
+						{
+							currGadget.relativeAdddress = static_cast<DWORD>(currGadget.absoluteAddress - modInfo.modBA.x64Addr);
+							currGadget.moduleName = modInfo.modName;
+						}
+
+						result.push_back(currGadget);
+					}
+				}
+			}
+		}
+
+		VirtualFree(pScanBuffer, 0, MEM_RELEASE);
+	}
+
+	return result;
+}
+
 std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x86(const Process::ModuleSignatureA& signature) const noexcept
 {
 	std::vector<Process::FoundGadgetA> result{};
@@ -1034,7 +1356,7 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x86(const Process::M
 
 	MEMORY_BASIC_INFORMATION64 mbi{};
 
-	for (DWORD currAddress{ modInfo.modBA.x86Addr.dw1 }; currAddress < modInfo.modBA.x86Addr.dw1 + modInfo.modSize; currAddress += mbi.RegionSize)
+	for (DWORD currAddress{ modInfo.modBA.x86Addr.dw1 }; currAddress < modInfo.modBA.x86Addr.dw1 + modInfo.modSize; currAddress = static_cast<DWORD>(mbi.BaseAddress + mbi.RegionSize))
 	{
 		if (!QVM(static_cast<QWORD>(currAddress), &mbi))
 			break;
@@ -1051,7 +1373,7 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x86(const Process::M
 		if (signature.writable && ((mbi.Protect & PAGE_EXECUTE) || (mbi.Protect & PAGE_EXECUTE_READ) || (mbi.Protect & PAGE_READONLY)))
 			continue;
 
-		const LPVOID pScanBuffer{ VirtualAlloc(nullptr, mbi.RegionSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) };
+		const LPVOID pScanBuffer{ VirtualAlloc(nullptr, static_cast<SIZE_T>(mbi.RegionSize), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) };
 
 		if (!pScanBuffer)
 			continue;
@@ -1073,7 +1395,7 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x86(const Process::M
 					Process::FoundGadgetA currGadget{};
 
 					currGadget.absoluteAddress = currAddress + (reinterpret_cast<QWORD>(address) - reinterpret_cast<QWORD>(pScanBuffer));
-					currGadget.relativeAdddress = currGadget.absoluteAddress - modInfo.modBA.x64Addr;
+					currGadget.relativeAdddress = static_cast<DWORD>(currGadget.absoluteAddress - modInfo.modBA.x64Addr);
 					currGadget.readable = signature.readable;
 					currGadget.writable = signature.writable;
 					currGadget.pattern = pattern;
@@ -1085,8 +1407,6 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x86(const Process::M
 					result.push_back(currGadget);
 				}
 			}
-
-			VirtualFree(pScanBuffer, 0, MEM_RELEASE);
 		}
 		else
 		{
@@ -1112,7 +1432,7 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x86(const Process::M
 						Process::FoundGadgetA currGadget{};
 
 						currGadget.absoluteAddress = currAddress + (reinterpret_cast<QWORD>(address) - reinterpret_cast<QWORD>(pScanBuffer));
-						currGadget.relativeAdddress = currGadget.absoluteAddress - modInfo.modBA.x64Addr;
+						currGadget.relativeAdddress = static_cast<DWORD>(currGadget.absoluteAddress - modInfo.modBA.x64Addr);
 						currGadget.readable = signature.readable;
 						currGadget.writable = signature.writable;
 						currGadget.pattern = pattern;
@@ -1124,10 +1444,10 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x86(const Process::M
 						result.push_back(currGadget);
 					}
 				}
-
-				VirtualFree(pScanBuffer, 0, MEM_RELEASE);
 			}
 		}
+
+		VirtualFree(pScanBuffer, 0, MEM_RELEASE);
 	}
 
 	return result;
@@ -1146,7 +1466,7 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x64(const Process::M
 
 	MEMORY_BASIC_INFORMATION64 mbi{};
 
-	for (QWORD currAddress{ modInfo.modBA.x64Addr }; currAddress < modInfo.modBA.x64Addr + modInfo.modSize; currAddress += mbi.RegionSize)
+	for (QWORD currAddress{ modInfo.modBA.x64Addr }; currAddress < modInfo.modBA.x64Addr + modInfo.modSize; currAddress = mbi.BaseAddress + mbi.RegionSize)
 	{
 		if (!QVM(currAddress, &mbi))
 			break;
@@ -1163,7 +1483,7 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x64(const Process::M
 		if (signature.writable && ((mbi.Protect & PAGE_EXECUTE) || (mbi.Protect & PAGE_EXECUTE_READ) || (mbi.Protect & PAGE_READONLY)))
 			continue;
 
-		const LPVOID pScanBuffer{ VirtualAlloc(nullptr, mbi.RegionSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) };
+		const LPVOID pScanBuffer{ VirtualAlloc(nullptr, static_cast<SIZE_T>(mbi.RegionSize), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) };
 
 		if (!pScanBuffer)
 			continue;
@@ -1185,7 +1505,7 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x64(const Process::M
 					Process::FoundGadgetA currGadget{};
 
 					currGadget.absoluteAddress = currAddress + (reinterpret_cast<QWORD>(address) - reinterpret_cast<QWORD>(pScanBuffer));
-					currGadget.relativeAdddress = currGadget.absoluteAddress - modInfo.modBA.x64Addr;
+					currGadget.relativeAdddress = static_cast<DWORD>(currGadget.absoluteAddress - modInfo.modBA.x64Addr);
 					currGadget.readable = signature.readable;
 					currGadget.writable = signature.writable;
 					currGadget.pattern = pattern;
@@ -1197,8 +1517,6 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x64(const Process::M
 					result.push_back(currGadget);
 				}
 			}
-
-			VirtualFree(pScanBuffer, 0, MEM_RELEASE);
 		}
 		else
 		{
@@ -1224,7 +1542,7 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x64(const Process::M
 						Process::FoundGadgetA currGadget{};
 
 						currGadget.absoluteAddress = currAddress + (reinterpret_cast<QWORD>(address) - reinterpret_cast<QWORD>(pScanBuffer));
-						currGadget.relativeAdddress = currGadget.absoluteAddress - modInfo.modBA.x64Addr;
+						currGadget.relativeAdddress = static_cast<DWORD>(currGadget.absoluteAddress - modInfo.modBA.x64Addr);
 						currGadget.readable = signature.readable;
 						currGadget.writable = signature.writable;
 						currGadget.pattern = pattern;
@@ -1236,10 +1554,10 @@ std::vector<Process::FoundGadgetA> ExtProcessA::findGadgets_x64(const Process::M
 						result.push_back(currGadget);
 					}
 				}
-
-				VirtualFree(pScanBuffer, 0, MEM_RELEASE);
 			}
 		}
+
+		VirtualFree(pScanBuffer, 0, MEM_RELEASE);
 	}
 
 	return result;
@@ -1976,7 +2294,7 @@ SIZE_T ExtProcessW::QVM_Wow64(const QWORD baseAddr, MEMORY_BASIC_INFORMATION64* 
 		return 0;
 	}
 
-	return returnLength;
+	return static_cast<SIZE_T>(returnLength);
 }
 #endif
 
@@ -2003,7 +2321,7 @@ ExtProcessW::ExtProcessW(const DWORD procID, const DWORD handleFlags) noexcept
 	m_attached = attach(procID);
 }
 
-ExtProcessW::ExtProcessW(const HANDLE duplicatedHandle, bool reattachByName, bool closeHandleOnDetach) noexcept
+ExtProcessW::ExtProcessW(const HANDLE duplicatedHandle, const bool reattachByName, const bool closeHandleOnDetach) noexcept
 	: IProcessW{ duplicatedHandle }
 	, m_handleFlags{}
 	, m_closeHandleOnDetach{ closeHandleOnDetach }
@@ -2051,7 +2369,7 @@ bool ExtProcessW::attach(const DWORD procID) noexcept
 	return m_attached;
 }
 
-bool ExtProcessW::attach(const HANDLE hProc, bool reattachByName, bool closeHandleOnDetach) noexcept
+bool ExtProcessW::attach(const HANDLE hProc, const bool reattachByName, const bool closeHandleOnDetach) noexcept
 {
 	if (m_attached)
 		return false;
@@ -2381,6 +2699,241 @@ Process::ModuleInformationW ExtProcessW::getModuleInfo_x64(const std::wstring& m
 }
 
 
+std::vector<Process::ModuleExportW> ExtProcessW::getModuleExports_x86(const QWORD modBA) const noexcept
+{
+	std::vector<Process::ModuleExportW> exports{};
+
+	if (modBA > static_cast<QWORD>(0xFFFFFFFF))
+		return exports;
+
+	const IMAGE_DOS_HEADER dosHeader{ RPM<IMAGE_DOS_HEADER>(static_cast<uintptr_t>(modBA)) };
+
+	if (dosHeader.e_magic != 0x5A4D)
+		return exports;
+
+	const IMAGE_NT_HEADERS32 ntHeader{ RPM<IMAGE_NT_HEADERS32>(modBA + dosHeader.e_lfanew) };
+
+	if (ntHeader.Signature != 0x4550 || ntHeader.OptionalHeader.Magic != 0x10B || ntHeader.FileHeader.Machine != IMAGE_FILE_MACHINE_I386 || !(ntHeader.FileHeader.Characteristics & (IMAGE_FILE_DLL | IMAGE_FILE_EXECUTABLE_IMAGE)))
+	{
+		return exports;
+	}
+
+	const IMAGE_EXPORT_DIRECTORY exportDirectory{ RPM<IMAGE_EXPORT_DIRECTORY>(modBA + ntHeader.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress) };
+
+	const QWORD namesAddr{ modBA + exportDirectory.AddressOfNames };
+	const QWORD ordinalsAddr{ modBA + exportDirectory.AddressOfNameOrdinals };
+	const QWORD exportTableAddr{ modBA + exportDirectory.AddressOfFunctions };
+
+	std::vector<DWORD> exportTable{};
+	exportTable.resize(exportDirectory.NumberOfFunctions);
+
+	std::vector<WORD> ordinalTable{};
+	ordinalTable.resize(exportDirectory.NumberOfNames);
+
+	std::vector<DWORD> nameTable{};
+	nameTable.resize(exportDirectory.NumberOfNames);
+
+	if (!RPM(exportTableAddr, exportTable.data(), static_cast<QWORD>(exportTable.size()) * sizeof(exportTable.at(0)), nullptr) ||
+		!RPM(ordinalsAddr, ordinalTable.data(), static_cast<QWORD>(ordinalTable.size()) * sizeof(ordinalTable.at(0)), nullptr) ||
+		!RPM(namesAddr, nameTable.data(), static_cast<QWORD>(nameTable.size()) * sizeof(nameTable.at(0)), nullptr))
+	{
+		return exports;
+	}
+
+	exports.reserve(2000);
+
+	std::wstring modName{};
+
+	std::vector<Process::ModuleInformationW>::const_iterator foundModule{ std::find_if(m_x86Modules.begin(), m_x86Modules.end(), [&](const Process::ModuleInformationW& mod) -> bool { return mod.modBA.x64Addr == modBA; }) };
+
+	if (foundModule != m_x86Modules.end())
+		modName = foundModule->modName;
+	else
+		modName = L"unknown";
+
+	char nameBuffer[0x102]{};
+
+	for (DWORD iterator{ 0 }; iterator < exportDirectory.NumberOfNames; ++iterator)
+	{
+		if (!nameTable.at(iterator))
+			continue;
+
+		RPM(modBA + nameTable.at(iterator), nameBuffer, 0x100, nullptr);
+
+		Process::ModuleExportW currExport{};
+
+		currExport.moduleName = modName;
+		currExport.ordinal = ordinalTable.at(iterator);
+		currExport.relativeAddress = exportTable.at(currExport.ordinal);
+		currExport.absoluteAddress = modBA + currExport.relativeAddress;
+
+		std::string ansiString{ reinterpret_cast<const char*>(nameBuffer) };
+		currExport.exportName = std::wstring{ ansiString.begin(), ansiString.end() };
+
+		currExport.ordinal += Process::ordinalBaseOffset;
+
+		if (currExport.absoluteAddress <= 0xFFFFFFFF)
+			exports.push_back(currExport);
+	}
+
+	for (DWORD iterator{ 0 }; iterator < exportDirectory.NumberOfFunctions; ++iterator)
+	{
+		bool hasName{ false };
+
+		for (Process::ModuleExportW& modExport : exports)
+		{
+			if (modExport.relativeAddress == exportTable.at(iterator))
+			{
+				hasName = true;
+				break;
+			}
+		}
+
+		if (hasName)
+			continue;
+
+		Process::ModuleExportW currExport{};
+
+		currExport.moduleName = modName;
+		currExport.ordinal = static_cast<WORD>(iterator);
+		currExport.relativeAddress = exportTable.at(iterator);
+		currExport.absoluteAddress = modBA + currExport.relativeAddress;
+		currExport.exportName = L"unknown";
+
+		currExport.ordinal += Process::ordinalBaseOffset;
+
+		if (currExport.absoluteAddress <= 0xFFFFFFFF)
+			exports.push_back(currExport);
+	}
+
+	std::sort(exports.begin(), exports.end(), [&](const Process::ModuleExportW& a, const Process::ModuleExportW& b) -> bool { return a.ordinal < b.ordinal; });
+
+	return exports;
+}
+
+std::vector<Process::ModuleExportW> ExtProcessW::getModuleExports_x64(const QWORD modBA) const noexcept
+{
+	std::vector<Process::ModuleExportW> exports{};
+
+	const IMAGE_DOS_HEADER dosHeader{ RPM<IMAGE_DOS_HEADER>(modBA) };
+
+	if (dosHeader.e_magic != 0x5A4D)
+		return exports;
+
+	const IMAGE_NT_HEADERS64 ntHeader{ RPM<IMAGE_NT_HEADERS64>(modBA + dosHeader.e_lfanew) };
+
+	if (ntHeader.Signature != 0x4550 || ntHeader.OptionalHeader.Magic != 0x20B || ntHeader.FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 || !(ntHeader.FileHeader.Characteristics & (IMAGE_FILE_DLL | IMAGE_FILE_EXECUTABLE_IMAGE)))
+	{
+		return exports;
+	}
+
+	const IMAGE_EXPORT_DIRECTORY exportDirectory{ RPM<IMAGE_EXPORT_DIRECTORY>(modBA + ntHeader.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress) };
+
+	const QWORD namesAddr{ modBA + exportDirectory.AddressOfNames };
+	const QWORD ordinalsAddr{ modBA + exportDirectory.AddressOfNameOrdinals };
+	const QWORD exportTableAddr{ modBA + exportDirectory.AddressOfFunctions };
+
+	std::vector<DWORD> exportTable{};
+	exportTable.resize(exportDirectory.NumberOfFunctions);
+
+	std::vector<WORD> ordinalTable{};
+	ordinalTable.resize(exportDirectory.NumberOfNames);
+
+	std::vector<DWORD> nameTable{};
+	nameTable.resize(exportDirectory.NumberOfNames);
+
+	if (!RPM(exportTableAddr, exportTable.data(), static_cast<QWORD>(exportTable.size()) * sizeof(exportTable.at(0)), nullptr) ||
+		!RPM(ordinalsAddr, ordinalTable.data(), static_cast<QWORD>(ordinalTable.size()) * sizeof(ordinalTable.at(0)), nullptr) ||
+		!RPM(namesAddr, nameTable.data(), static_cast<QWORD>(nameTable.size()) * sizeof(nameTable.at(0)), nullptr))
+	{
+		return exports;
+	}
+
+	exports.reserve(2000);
+
+	std::wstring modName{};
+
+	std::vector<Process::ModuleInformationW>::const_iterator foundModule{ std::find_if(m_x64Modules.begin(), m_x64Modules.end(), [&](const Process::ModuleInformationW& mod) -> bool { return mod.modBA.x64Addr == modBA; }) };
+
+	if (foundModule != m_x64Modules.end())
+		modName = foundModule->modName;
+	else
+		modName = L"unknown";
+
+	char nameBuffer[0x102]{};
+
+	for (DWORD iterator{ 0 }; iterator < exportDirectory.NumberOfNames; ++iterator)
+	{
+		if (!nameTable.at(iterator))
+			continue;
+
+		RPM(modBA + nameTable.at(iterator), nameBuffer, 0x100, nullptr);
+
+		Process::ModuleExportW currExport{};
+
+		currExport.moduleName = modName;
+		currExport.ordinal = ordinalTable.at(iterator);
+		currExport.relativeAddress = exportTable.at(currExport.ordinal);
+		currExport.absoluteAddress = modBA + currExport.relativeAddress;
+
+		std::string ansiString{ reinterpret_cast<const char*>(nameBuffer) };
+		currExport.exportName = std::wstring{ ansiString.begin(), ansiString.end() };
+
+		currExport.ordinal += Process::ordinalBaseOffset;
+
+		exports.push_back(currExport);
+	}
+
+	for (DWORD iterator{ 0 }; iterator < exportDirectory.NumberOfFunctions; ++iterator)
+	{
+		bool hasName{ false };
+
+		for (Process::ModuleExportW& modExport : exports)
+		{
+			if (modExport.relativeAddress == exportTable.at(iterator))
+			{
+				hasName = true;
+				break;
+			}
+		}
+
+		if (hasName)
+			continue;
+
+		Process::ModuleExportW currExport{};
+
+		currExport.moduleName = modName;
+		currExport.ordinal = static_cast<WORD>(iterator);
+		currExport.relativeAddress = exportTable.at(iterator);
+		currExport.absoluteAddress = modBA + currExport.relativeAddress;
+		currExport.exportName = L"unknown";
+
+		currExport.ordinal += Process::ordinalBaseOffset;
+
+		exports.push_back(currExport);
+	}
+
+	std::sort(exports.begin(), exports.end(), [&](const Process::ModuleExportW& a, const Process::ModuleExportW& b) -> bool { return a.ordinal < b.ordinal; });
+
+	return exports;
+}
+
+
+std::vector<Process::ModuleExportW> ExtProcessW::getModuleExports_x86(const std::wstring& modName) const noexcept
+{
+	const QWORD modBA{ getModBA_x86(modName) };
+
+	return (modBA) ? getModuleExports_x86(modBA) : std::vector<Process::ModuleExportW>{};
+}
+
+std::vector<Process::ModuleExportW> ExtProcessW::getModuleExports_x64(const std::wstring& modName) const noexcept
+{
+	const QWORD modBA{ getModBA_x64(modName) };
+
+	return (modBA) ? getModuleExports_x64(modBA) : std::vector<Process::ModuleExportW>{};
+}
+
+
 QWORD ExtProcessW::getProcAddress_x86(const QWORD modBA, const std::wstring& functionName) const noexcept
 {
 	if (modBA > static_cast<QWORD>(0xFFFFFFFF))
@@ -2661,22 +3214,6 @@ QWORD ExtProcessW::scanPattern_x64(const Process::ModuleSignatureW& signature) c
 }
 
 
-int ExtProcessW::patternCount(const Process::SignatureW& signature) const noexcept
-{
-	return findGadgets(signature).size();
-}
-
-int ExtProcessW::patternCount_x86(const Process::ModuleSignatureW& signature) const noexcept
-{
-	return findGadgets_x86(signature).size();
-}
-
-int ExtProcessW::patternCount_x64(const Process::ModuleSignatureW& signature) const noexcept
-{
-	return findGadgets_x64(signature).size();
-}
-
-
 std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets(const Process::SignatureW& signature) const noexcept
 {
 	std::vector<Process::FoundGadgetW> result{};
@@ -2709,6 +3246,112 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets(const Process::Signa
 	return result;
 }
 
+std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets(const std::vector<short>& signature, const QWORD startAddress, const QWORD endAddress) const noexcept
+{
+	std::vector<Process::FoundGadgetW> result{};
+
+	const std::vector<Process::SigByte> pattern{ Process::getSigBytePattern(signature) };
+
+	MEMORY_BASIC_INFORMATION64 mbi{};
+
+	for (QWORD currAddress{ startAddress }; currAddress < endAddress; currAddress = mbi.BaseAddress + mbi.RegionSize)
+	{
+		if (!QVM(static_cast<QWORD>(currAddress), &mbi))
+			break;
+
+		if ((mbi.Protect & PAGE_NOACCESS) || (mbi.Protect & PAGE_GUARD) || !(mbi.State & MEM_COMMIT) || !mbi.RegionSize)
+			continue;
+
+		const DWORD scanSize{ (currAddress + mbi.RegionSize > endAddress) ? static_cast<DWORD>(endAddress - currAddress) : static_cast<DWORD>(mbi.RegionSize) };
+
+		const LPVOID pScanBuffer{ VirtualAlloc(nullptr, scanSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) };
+
+		if (!pScanBuffer)
+			continue;
+
+		if (!(mbi.Protect & PAGE_EXECUTE))
+		{
+			if (!RPM(currAddress, pScanBuffer, scanSize, nullptr))
+			{
+				VirtualFree(pScanBuffer, 0, MEM_RELEASE);
+				continue;
+			}
+
+			const std::vector<char*> addrBuffer{ findPatternsInBuffer(reinterpret_cast<const char* const>(pScanBuffer), scanSize, pattern) };
+
+			if (addrBuffer.size())
+			{
+				for (const char* const address : addrBuffer)
+				{
+					Process::FoundGadgetW currGadget{};
+					Process::ModuleInformationW modInfo{};
+
+					currGadget.absoluteAddress = currAddress + (reinterpret_cast<QWORD>(address) - reinterpret_cast<QWORD>(pScanBuffer));
+					currGadget.readable = true;
+					currGadget.writable = !((mbi.Protect & PAGE_EXECUTE) || (mbi.Protect & PAGE_EXECUTE_READ) || (mbi.Protect & PAGE_READONLY));
+					currGadget.pattern = pattern;
+					currGadget.bytes.clear();
+					currGadget.bytes.insert(currGadget.bytes.end(), address, address + pattern.size());
+
+					if (isModuleAddress(reinterpret_cast<QWORD>(address), &modInfo))
+					{
+						currGadget.relativeAdddress = static_cast<DWORD>(currGadget.absoluteAddress - modInfo.modBA.x64Addr);
+						currGadget.moduleName = modInfo.modName;
+					}
+
+					result.push_back(currGadget);
+				}
+			}
+		}
+		else
+		{
+			DWORD oldProtect{};
+
+			if (PVM(currAddress, scanSize, PAGE_EXECUTE_READWRITE, &oldProtect))
+			{
+				if (!RPM(currAddress, pScanBuffer, scanSize, nullptr))
+				{
+					PVM(currAddress, scanSize, oldProtect, &oldProtect);
+					VirtualFree(pScanBuffer, 0, MEM_RELEASE);
+					continue;
+				}
+
+				PVM(currAddress, scanSize, oldProtect, &oldProtect);
+
+				const std::vector<char*> addrBuffer{ findPatternsInBuffer(reinterpret_cast<const char* const>(pScanBuffer), scanSize, pattern) };
+
+				if (addrBuffer.size())
+				{
+					for (const char* const address : addrBuffer)
+					{
+						Process::FoundGadgetW currGadget{};
+						Process::ModuleInformationW modInfo{};
+
+						currGadget.absoluteAddress = currAddress + (reinterpret_cast<QWORD>(address) - reinterpret_cast<QWORD>(pScanBuffer));
+						currGadget.readable = false;
+						currGadget.writable = !((mbi.Protect & PAGE_EXECUTE) || (mbi.Protect & PAGE_EXECUTE_READ) || (mbi.Protect & PAGE_READONLY));
+						currGadget.pattern = pattern;
+						currGadget.bytes.clear();
+						currGadget.bytes.insert(currGadget.bytes.end(), address, address + pattern.size());
+
+						if (isModuleAddress(reinterpret_cast<QWORD>(address), &modInfo))
+						{
+							currGadget.relativeAdddress = static_cast<DWORD>(currGadget.absoluteAddress - modInfo.modBA.x64Addr);
+							currGadget.moduleName = modInfo.modName;
+						}
+
+						result.push_back(currGadget);
+					}
+				}
+			}
+		}
+
+		VirtualFree(pScanBuffer, 0, MEM_RELEASE);
+	}
+
+	return result;
+}
+
 std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x86(const Process::ModuleSignatureW& signature) const noexcept
 {
 	std::vector<Process::FoundGadgetW> result{};
@@ -2725,7 +3368,7 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x86(const Process::M
 
 	MEMORY_BASIC_INFORMATION64 mbi{};
 
-	for (DWORD currAddress{ modInfo.modBA.x86Addr.dw1 }; currAddress < modInfo.modBA.x86Addr.dw1 + modInfo.modSize; currAddress += mbi.RegionSize)
+	for (DWORD currAddress{ modInfo.modBA.x86Addr.dw1 }; currAddress < modInfo.modBA.x86Addr.dw1 + modInfo.modSize; currAddress = static_cast<DWORD>(mbi.BaseAddress + mbi.RegionSize))
 	{
 		if (!QVM(static_cast<QWORD>(currAddress), &mbi))
 			break;
@@ -2742,7 +3385,7 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x86(const Process::M
 		if (signature.writable && ((mbi.Protect & PAGE_EXECUTE) || (mbi.Protect & PAGE_EXECUTE_READ) || (mbi.Protect & PAGE_READONLY)))
 			continue;
 
-		const LPVOID pScanBuffer{ VirtualAlloc(nullptr, mbi.RegionSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) };
+		const LPVOID pScanBuffer{ VirtualAlloc(nullptr, static_cast<SIZE_T>(mbi.RegionSize), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) };
 
 		if (!pScanBuffer)
 			continue;
@@ -2764,7 +3407,7 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x86(const Process::M
 					Process::FoundGadgetW currGadget{};
 
 					currGadget.absoluteAddress = currAddress + (reinterpret_cast<QWORD>(address) - reinterpret_cast<QWORD>(pScanBuffer));
-					currGadget.relativeAdddress = currGadget.absoluteAddress - modInfo.modBA.x64Addr;
+					currGadget.relativeAdddress = static_cast<DWORD>(currGadget.absoluteAddress - modInfo.modBA.x64Addr);
 					currGadget.readable = signature.readable;
 					currGadget.writable = signature.writable;
 					currGadget.pattern = pattern;
@@ -2776,8 +3419,6 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x86(const Process::M
 					result.push_back(currGadget);
 				}
 			}
-
-			VirtualFree(pScanBuffer, 0, MEM_RELEASE);
 		}
 		else
 		{
@@ -2803,7 +3444,7 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x86(const Process::M
 						Process::FoundGadgetW currGadget{};
 
 						currGadget.absoluteAddress = currAddress + (reinterpret_cast<QWORD>(address) - reinterpret_cast<QWORD>(pScanBuffer));
-						currGadget.relativeAdddress = currGadget.absoluteAddress - modInfo.modBA.x64Addr;
+						currGadget.relativeAdddress = static_cast<DWORD>(currGadget.absoluteAddress - modInfo.modBA.x64Addr);
 						currGadget.readable = signature.readable;
 						currGadget.writable = signature.writable;
 						currGadget.pattern = pattern;
@@ -2815,10 +3456,10 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x86(const Process::M
 						result.push_back(currGadget);
 					}
 				}
-
-				VirtualFree(pScanBuffer, 0, MEM_RELEASE);
 			}
 		}
+
+		VirtualFree(pScanBuffer, 0, MEM_RELEASE);
 	}
 
 	return result;
@@ -2837,7 +3478,7 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x64(const Process::M
 
 	MEMORY_BASIC_INFORMATION64 mbi{};
 
-	for (QWORD currAddress{ modInfo.modBA.x64Addr }; currAddress < modInfo.modBA.x64Addr + modInfo.modSize; currAddress += mbi.RegionSize)
+	for (QWORD currAddress{ modInfo.modBA.x64Addr }; currAddress < modInfo.modBA.x64Addr + modInfo.modSize; currAddress = mbi.BaseAddress + mbi.RegionSize)
 	{
 		if (!QVM(currAddress, &mbi))
 			break;
@@ -2854,7 +3495,7 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x64(const Process::M
 		if (signature.writable && ((mbi.Protect & PAGE_EXECUTE) || (mbi.Protect & PAGE_EXECUTE_READ) || (mbi.Protect & PAGE_READONLY)))
 			continue;
 
-		const LPVOID pScanBuffer{ VirtualAlloc(nullptr, mbi.RegionSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) };
+		const LPVOID pScanBuffer{ VirtualAlloc(nullptr, static_cast<SIZE_T>(mbi.RegionSize), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) };
 
 		if (!pScanBuffer)
 			continue;
@@ -2876,7 +3517,7 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x64(const Process::M
 					Process::FoundGadgetW currGadget{};
 
 					currGadget.absoluteAddress = currAddress + (reinterpret_cast<QWORD>(address) - reinterpret_cast<QWORD>(pScanBuffer));
-					currGadget.relativeAdddress = currGadget.absoluteAddress - modInfo.modBA.x64Addr;
+					currGadget.relativeAdddress = static_cast<DWORD>(currGadget.absoluteAddress - modInfo.modBA.x64Addr);
 					currGadget.readable = signature.readable;
 					currGadget.writable = signature.writable;
 					currGadget.pattern = pattern;
@@ -2888,8 +3529,6 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x64(const Process::M
 					result.push_back(currGadget);
 				}
 			}
-
-			VirtualFree(pScanBuffer, 0, MEM_RELEASE);
 		}
 		else
 		{
@@ -2915,7 +3554,7 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x64(const Process::M
 						Process::FoundGadgetW currGadget{};
 
 						currGadget.absoluteAddress = currAddress + (reinterpret_cast<QWORD>(address) - reinterpret_cast<QWORD>(pScanBuffer));
-						currGadget.relativeAdddress = currGadget.absoluteAddress - modInfo.modBA.x64Addr;
+						currGadget.relativeAdddress = static_cast<DWORD>(currGadget.absoluteAddress - modInfo.modBA.x64Addr);
 						currGadget.readable = signature.readable;
 						currGadget.writable = signature.writable;
 						currGadget.pattern = pattern;
@@ -2927,10 +3566,10 @@ std::vector<Process::FoundGadgetW> ExtProcessW::findGadgets_x64(const Process::M
 						result.push_back(currGadget);
 					}
 				}
-
-				VirtualFree(pScanBuffer, 0, MEM_RELEASE);
 			}
 		}
+
+		VirtualFree(pScanBuffer, 0, MEM_RELEASE);
 	}
 
 	return result;

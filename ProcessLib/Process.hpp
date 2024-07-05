@@ -19,9 +19,9 @@
 #endif
 
 #ifndef UNICODE
-#define ExtProcess ExtProcessA
-#define LocalProcess LocalProcessA
+#define MExtProcess ExtProcessA
+#define MLocalProcess LocalProcessA
 #else
-#define ExtProcess ExtProcessW
-#define LocalProcess LocalProcessW
+#define MExtProcess ExtProcessW
+#define MLocalProcess LocalProcessW
 #endif
