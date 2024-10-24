@@ -430,8 +430,8 @@ public:
 	QWORD getProcAddress_x86(const QWORD modBA, const std::string& functionName) const noexcept override final;
 	QWORD getProcAddress_x64(const QWORD modBA, const std::string& functionName) const noexcept	override final;
 
-	QWORD getProcAddress_x86(const std::string modName, const std::string& functionName) const noexcept override final;
-	QWORD getProcAddress_x64(const std::string modName, const std::string& functionName) const noexcept	override final;
+	QWORD getProcAddress_x86(const std::string& modName, const std::string& functionName) const noexcept override final;
+	QWORD getProcAddress_x64(const std::string& modName, const std::string& functionName) const noexcept	override final;
 
 	Process::ModuleInformationA getModuleInfo_x86(const std::string& modName) noexcept override final;
 	Process::ModuleInformationA getModuleInfo_x64(const std::string& modName) noexcept override final;
@@ -562,8 +562,8 @@ public:
 	QWORD getProcAddress_x86(const QWORD modBA, const std::wstring& functionName) const noexcept override final;
 	QWORD getProcAddress_x64(const QWORD modBA, const std::wstring& functionName) const noexcept override final;
 
-	QWORD getProcAddress_x86(const std::wstring modName, const std::wstring& functionName) const noexcept override final;
-	QWORD getProcAddress_x64(const std::wstring modName, const std::wstring& functionName) const noexcept	override final;
+	QWORD getProcAddress_x86(const std::wstring& modName, const std::wstring& functionName) const noexcept override final;
+	QWORD getProcAddress_x64(const std::wstring& modName, const std::wstring& functionName) const noexcept	override final;
 
 	Process::ModuleInformationW getModuleInfo_x86(const std::wstring& modName) noexcept override final;
 	Process::ModuleInformationW getModuleInfo_x64(const std::wstring& modName) noexcept override final;

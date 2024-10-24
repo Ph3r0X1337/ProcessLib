@@ -141,8 +141,8 @@ public:
 	virtual QWORD getProcAddress_x64(const QWORD modBA, const T& functionName) const noexcept = 0;
 
 	QWORD getProcAddress(const T& modName, const T& functionName) const noexcept { return ((m_processInfo.wow64Process) ? getProcAddress_x86(modName, functionName) : getProcAddress_x64(modName, functionName)); }
-	virtual QWORD getProcAddress_x86(const T modName, const T& functionName) const noexcept = 0;
-	virtual QWORD getProcAddress_x64(const T modName, const T& functionName) const noexcept = 0;
+	virtual QWORD getProcAddress_x86(const T& modName, const T& functionName) const noexcept = 0;
+	virtual QWORD getProcAddress_x64(const T& modName, const T& functionName) const noexcept = 0;
 
 	Process::ModuleInformation<T> getModuleInfo(const T& modName) noexcept { return ((m_processInfo.wow64Process) ? getModuleInfo_x86(modName) : getModuleInfo_x64(modName)); }
 	virtual Process::ModuleInformation<T> getModuleInfo_x86(const T& modName) noexcept = 0;

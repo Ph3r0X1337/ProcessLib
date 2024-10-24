@@ -1059,14 +1059,14 @@ QWORD ExtProcessA::getProcAddress_x64(const QWORD modBA, const std::string& func
 }
 
 
-QWORD ExtProcessA::getProcAddress_x86(const std::string modName, const std::string& functionName) const noexcept
+QWORD ExtProcessA::getProcAddress_x86(const std::string& modName, const std::string& functionName) const noexcept
 {
 	const QWORD modBA{ getModBA_x86(modName) };
 
 	return (modBA) ? getProcAddress_x86(modBA, functionName) : 0;
 }
 
-QWORD ExtProcessA::getProcAddress_x64(const std::string modName, const std::string& functionName) const noexcept
+QWORD ExtProcessA::getProcAddress_x64(const std::string& modName, const std::string& functionName) const noexcept
 {
 	const QWORD modBA{ getModBA_x64(modName) };
 
@@ -3071,14 +3071,14 @@ QWORD ExtProcessW::getProcAddress_x64(const QWORD modBA, const std::wstring& fun
 }
 
 
-QWORD ExtProcessW::getProcAddress_x86(const std::wstring modName, const std::wstring& functionName) const noexcept
+QWORD ExtProcessW::getProcAddress_x86(const std::wstring& modName, const std::wstring& functionName) const noexcept
 {
 	const QWORD modBA{ getModBA_x86(modName) };
 
 	return (modBA) ? getProcAddress_x86(modBA, functionName) : 0;
 }
 
-QWORD ExtProcessW::getProcAddress_x64(const std::wstring modName, const std::wstring& functionName) const noexcept
+QWORD ExtProcessW::getProcAddress_x64(const std::wstring& modName, const std::wstring& functionName) const noexcept
 {
 	const QWORD modBA{ getModBA_x64(modName) };
 

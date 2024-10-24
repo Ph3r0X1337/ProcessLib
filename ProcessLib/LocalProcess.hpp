@@ -368,31 +368,12 @@ private:
 	QWORD m_addrPrevIC{};
 #endif
 
-#ifndef _WIN64
-
-	//LocalProcess::InitState m_initState{ LocalProcess::InitState::uninitialized };
-	//DWORD m_shellcodeMemory{};
-
-#endif
-
 	static LocalProcessA s_instance;
 
 	bool updateModuleInfo_x86() noexcept override final;
 	bool updateModuleInfo_x64() noexcept override final;
 
 	bool updateSyscallIDs() noexcept;
-
-	/*
-	QWORD getPatternAddress_x86(const Process::ModuleSignatureA& signature, bool& patternFound) const noexcept override final;
-	QWORD getPatternAddress_x64(const Process::ModuleSignatureA& signature, bool& patternFound) const noexcept override final;
-	*/
-
-#ifndef _WIN64
-
-	//static void initShellcodeMemory() noexcept;
-	//static void deleteShellcodeMemory() noexcept;
-
-#endif
 
 	LocalProcessA() noexcept;
 	LocalProcessA(const LocalProcessA&) {}
@@ -404,7 +385,6 @@ public:
 	using IProcessA::scanPattern;
 	using IProcessA::findGadgets;
 
-	//static LocalProcessA& getInstance() noexcept;
 	static LocalProcessA& getInstance() noexcept { return s_instance; }
 
 #ifdef _WIN64
@@ -450,8 +430,8 @@ public:
 	QWORD getProcAddress_x86(const QWORD modBA, const std::string& functionName) const noexcept override final;
 	QWORD getProcAddress_x64(const QWORD modBA, const std::string& functionName) const noexcept	override final;
 
-	QWORD getProcAddress_x86(const std::string modName, const std::string& functionName) const noexcept override final;
-	QWORD getProcAddress_x64(const std::string modName, const std::string& functionName) const noexcept	override final;
+	QWORD getProcAddress_x86(const std::string& modName, const std::string& functionName) const noexcept override final;
+	QWORD getProcAddress_x64(const std::string& modName, const std::string& functionName) const noexcept	override final;
 
 	Process::ModuleInformationA getModuleInfo_x86(const std::string& modName) noexcept override final;
 	Process::ModuleInformationA getModuleInfo_x64(const std::string& modName) noexcept override final;
@@ -473,20 +453,6 @@ public:
 	QWORD call64BitFunction(const QWORD funcAddr, const DWORD argCount, ...) const noexcept;
 	QWORD call64BitFunction(const QWORD funcAddr) const noexcept { return call64BitFunction(funcAddr, 1, 0); }
 	QWORD call64BitFunction(const QWORD funcAddr, const QWORD argument) const noexcept { return call64BitFunction(funcAddr, 1, argument); }
-
-	/*
-	BYTE readByte64Bit(const QWORD address) const noexcept { return static_cast<BYTE>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetReadByte, address)); }
-	WORD readWord64Bit(const QWORD address) const noexcept { return static_cast<WORD>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetReadWord, address)); }
-	DWORD readDword64Bit(const QWORD address) const noexcept { return static_cast<DWORD>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetReadDword, address)); }
-	QWORD readQword64Bit(const QWORD address) const noexcept { return call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetReadQword, address); }
-
-	bool writeByte64Bit(const QWORD address, const BYTE value) const noexcept { return static_cast<bool>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetWriteByte, 2, address, static_cast<QWORD>(value))); }
-	bool writeWord64Bit(const QWORD address, const WORD value) const noexcept { return static_cast<bool>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetWriteWord, 2, address, static_cast<QWORD>(value))); }
-	bool writeDword64Bit(const QWORD address, const DWORD value) const noexcept { return static_cast<bool>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetWriteDword, 2, address, static_cast<QWORD>(value))); }
-	bool writeQword64Bit(const QWORD address, const QWORD value) const noexcept { return static_cast<bool>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetWriteQword, 2, address, value)); }
-
-	QWORD memcpy64Bit(const QWORD pDst, const QWORD pSrc, const QWORD size) const noexcept { return call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetMemcpy, 3, pDst, pSrc, size); }
-	*/
 
 	BYTE readByte64Bit(const QWORD address) const noexcept;
 	WORD readWord64Bit(const QWORD address) const noexcept;
@@ -534,31 +500,12 @@ private:
 	QWORD m_addrPrevIC{};
 #endif
 
-#ifndef _WIN64
-
-	//LocalProcess::InitState m_initState{ LocalProcess::InitState::uninitialized };
-	//DWORD m_shellcodeMemory{};
-
-#endif
-
 	static LocalProcessW s_instance;
 
 	bool updateModuleInfo_x86() noexcept override final;
 	bool updateModuleInfo_x64() noexcept override final;
 
 	bool updateSyscallIDs() noexcept;
-
-	/*
-	QWORD getPatternAddress_x86(const Process::ModuleSignatureW& signature, bool& patternFound) const noexcept override final;
-	QWORD getPatternAddress_x64(const Process::ModuleSignatureW& signature, bool& patternFound) const noexcept override final;
-	*/
-
-#ifndef _WIN64
-
-	//static void initShellcodeMemory() noexcept;
-	//static void deleteShellcodeMemory() noexcept;
-
-#endif
 
 	LocalProcessW() noexcept;
 	LocalProcessW(const LocalProcessW&) {}
@@ -570,7 +517,6 @@ public:
 	using IProcessW::scanPattern;
 	using IProcessW::findGadgets;
 
-	//static LocalProcessW& getInstance() noexcept;
 	static LocalProcessW& getInstance() noexcept { return s_instance; }
 
 #ifdef _WIN64
@@ -616,8 +562,8 @@ public:
 	QWORD getProcAddress_x86(const QWORD modBA, const std::wstring& functionName) const noexcept override final;
 	QWORD getProcAddress_x64(const QWORD modBA, const std::wstring& functionName) const noexcept override final;
 
-	QWORD getProcAddress_x86(const std::wstring modName, const std::wstring& functionName) const noexcept override final;
-	QWORD getProcAddress_x64(const std::wstring modName, const std::wstring& functionName) const noexcept	override final;
+	QWORD getProcAddress_x86(const std::wstring& modName, const std::wstring& functionName) const noexcept override final;
+	QWORD getProcAddress_x64(const std::wstring& modName, const std::wstring& functionName) const noexcept	override final;
 
 	Process::ModuleInformationW getModuleInfo_x86(const std::wstring& modName) noexcept override final;
 	Process::ModuleInformationW getModuleInfo_x64(const std::wstring& modName) noexcept override final;
@@ -639,20 +585,6 @@ public:
 	QWORD call64BitFunction(const QWORD funcAddr, const DWORD argCount, ...) const noexcept;
 	QWORD call64BitFunction(const QWORD funcAddr) const noexcept { return call64BitFunction(funcAddr, 1, 0); }
 	QWORD call64BitFunction(const QWORD funcAddr, const QWORD argument) const noexcept { return call64BitFunction(funcAddr, 1, argument); }
-
-	/*
-	BYTE readByte64Bit(const QWORD address) const noexcept { return static_cast<BYTE>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetReadByte, address)); }
-	WORD readWord64Bit(const QWORD address) const noexcept { return static_cast<WORD>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetReadWord, address)); }
-	DWORD readDword64Bit(const QWORD address) const noexcept { return static_cast<DWORD>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetReadDword, address)); }
-	QWORD readQword64Bit(const QWORD address) const noexcept { return call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetReadQword, address); }
-
-	bool writeByte64Bit(const QWORD address, const BYTE value) const noexcept { return static_cast<bool>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetWriteByte, 2, address, static_cast<QWORD>(value))); }
-	bool writeWord64Bit(const QWORD address, const WORD value) const noexcept { return static_cast<bool>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetWriteWord, 2, address, static_cast<QWORD>(value))); }
-	bool writeDword64Bit(const QWORD address, const DWORD value) const noexcept { return static_cast<bool>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetWriteDword, 2, address, static_cast<QWORD>(value))); }
-	bool writeQword64Bit(const QWORD address, const QWORD value) const noexcept { return static_cast<bool>(call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetWriteQword, 2, address, value)); }
-
-	QWORD memcpy64Bit(const QWORD pDst, const QWORD pSrc, const QWORD size) const noexcept { return call64BitFunction(static_cast<QWORD>(m_shellcodeMemory) + LocalProcess::shellcode::offsetMemcpy, 3, pDst, pSrc, size); }
-	*/
 
 	BYTE readByte64Bit(const QWORD address) const noexcept;
 	WORD readWord64Bit(const QWORD address) const noexcept;
