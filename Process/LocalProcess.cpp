@@ -20,7 +20,7 @@ QWORD LocalProcess::generateSwitchToLongMode(const DWORD farJumpAddress32Bit) no
 }
 
 
-#pragma section(".text")
+#pragma section(".text")	//#pragma section(".text", read, execute) -> Use this from now on
 
 extern const unsigned char x86_64_Call32BitICThunkA[];
 extern const unsigned char x86_64_Call32BitICThunkW[];
